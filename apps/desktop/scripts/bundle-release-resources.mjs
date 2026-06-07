@@ -4,6 +4,20 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+const normalizeNodeArch = (arch) => {
+  if (arch === 'x86_64') {
+    return 'x64'
+  }
+
+  if (arch === 'aarch64') {
+    return 'arm64'
+  }
+
+  return arch
+}
+
+const bundledNodeArch = () => normalizeNodeArch(process.env.OPENMD_BUNDLE_NODE_ARCH ?? process.arch)
+
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url))
 const desktopDirectory = path.resolve(scriptDirectory, '..')
 const repoRoot = path.resolve(desktopDirectory, '../..')
@@ -15,16 +29,18 @@ const nodeDirectory = path.join(resourcesDirectory, 'node')
 const nodeVersion = '20.19.5'
 
 const nodeArchiveName = () => {
+  const arch = bundledNodeArch()
+
   if (process.platform === 'darwin') {
-    return `node-v${nodeVersion}-darwin-${process.arch}`
+    return `node-v${nodeVersion}-darwin-${arch}`
   }
 
   if (process.platform === 'linux') {
-    return `node-v${nodeVersion}-linux-${process.arch}`
+    return `node-v${nodeVersion}-linux-${arch}`
   }
 
   if (process.platform === 'win32') {
-    return `node-v${nodeVersion}-win-${process.arch === 'ia32' ? 'x86' : process.arch}`
+    return `node-v${nodeVersion}-win-${arch === 'ia32' ? 'x86' : arch}`
   }
 
   throw new Error(`Unsupported platform for bundled Node.js: ${process.platform}`)
@@ -102,6 +118,64 @@ const downloadBundledNode = async () => {
   await fs.rm(tempDirectory, { recursive: true, force: true })
 }
 
+const removeBrokenSymlinks = async (rootDirectory) => {
+  const walk = async (directory) => {
+    let entries
+
+    try {
+      entries = await fs.readdir(directory, { withFileTypes: true })
+    } catch {
+      return
+    }
+
+    await Promise.all(
+      entries.map(async (entry) => {
+        const entryPath = path.join(directory, entry.name)
+
+        if (entry.isSymbolicLink()) {
+          try {
+            await fs.stat(entryPath)
+          } catch {
+            await fs.unlink(entryPath)
+          }
+
+          return
+        }
+
+        if (entry.isDirectory()) {
+          await walk(entryPath)
+        }
+      }),
+    )
+  }
+
+  await walk(rootDirectory)
+}
+
+const pruneBundledServer = async () => {
+  const pathsToRemove = [
+    path.join(serverDirectory, 'node_modules', '.bin'),
+    path.join(serverDirectory, 'node_modules', 'next'),
+    path.join(serverDirectory, 'apps'),
+    path.join(serverDirectory, 'README.md'),
+    path.join(serverDirectory, 'pnpm-lock.yaml'),
+    path.join(serverDirectory, '.npmrc'),
+  ]
+
+  await Promise.all(
+    pathsToRemove.map((target) => fs.rm(target, { recursive: true, force: true })),
+  )
+
+  const nodeModulesDirectory = path.join(serverDirectory, 'node_modules')
+
+  try {
+    await fs.access(nodeModulesDirectory)
+    await removeBrokenSymlinks(nodeModulesDirectory)
+  } catch {
+    // node_modules already removed or missing.
+  }
+}
+
 const copyRelayClient = async () => {
   await fs.rm(relayDirectory, { recursive: true, force: true })
   await fs.mkdir(relayDirectory, { recursive: true })
@@ -131,6 +205,8 @@ await fs.writeFile(
 runCommand(`${pnpmCommand()} install --prod --ignore-workspace`, {
   cwd: deployedServerDirectory,
 })
+
+await pruneBundledServer()
 
 await copyRelayClient()
 await downloadBundledNode()
