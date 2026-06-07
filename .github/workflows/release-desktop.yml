@@ -78,6 +78,16 @@ jobs:
             Desktop builds for macOS (Apple Silicon and Intel), Windows, and Linux.
 
             Install the bundle for your platform from the assets below.
+
+            ### macOS install note
+
+            If macOS says the app is "damaged", remove the download quarantine flag:
+
+            ```bash
+            xattr -cr /Applications/openmd.app
+            ```
+
+            Or right-click the app and choose **Open** (first launch only).
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}

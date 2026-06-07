@@ -1,6 +1,8 @@
 import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
 
+import { useSessionStore } from '@/stores/session.store'
+
 const isTauriRuntime = () => {
   if (typeof window === 'undefined') {
     return false
@@ -63,9 +65,22 @@ export const createProjectOnDisk = async (projectPath: string): Promise<void> =>
   }
 }
 
+export const getLocalServerUrl = async (): Promise<string | null> => {
+  if (!isTauriRuntime()) {
+    return null
+  }
+
+  return invoke<string | null>('get_local_server_url')
+}
+
 export const startLocalServer = async (workspacePath: string): Promise<{ port: number } | null> => {
   if (isTauriRuntime()) {
     const result = await invoke<{ port: number }>('start_local_server', { workspacePath })
+
+    if (result?.port) {
+      useSessionStore.getState().setServerUrl(`http://127.0.0.1:${result.port}`)
+    }
+
     return result
   }
 

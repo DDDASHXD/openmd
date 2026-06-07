@@ -9,18 +9,17 @@ static RELAY_CLIENT: Mutex<Option<Child>> = Mutex::new(None);
 
 #[tauri::command]
 fn create_project(path: String) -> Result<(), String> {
-    let repo = server::repo_root();
-    let script = repo.join("packages/openmd-server/src/lib/project-template.mjs");
+    let paths = server::resolve_paths()?;
+    let import_url = server::project_template_import_url(&paths.project_template);
 
-    let status = std::process::Command::new("node")
+    let status = Command::new(&paths.node)
         .arg("--input-type=module")
         .arg("-e")
         .arg(format!(
-            "import {{ createProjectScaffold }} from '{}'; await createProjectScaffold(process.argv[1]);",
-            script.display()
+            "import {{ createProjectScaffold }} from '{import_url}'; await createProjectScaffold(process.argv[1]);"
         ))
         .arg(&path)
-        .current_dir(&repo)
+        .current_dir(&paths.working_dir)
         .status()
         .map_err(|error| format!("Failed to create project: {error}"))?;
 
@@ -34,6 +33,12 @@ fn create_project(path: String) -> Result<(), String> {
 fn navigate_window(window: &tauri::WebviewWindow, url: &str) -> Result<(), String> {
     let parsed = tauri::Url::parse(url).map_err(|error| error.to_string())?;
     window.navigate(parsed).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn get_local_server_url() -> Option<String> {
+    server::current_port()
+        .map(|port| format!("http://127.0.0.1:{port}"))
 }
 
 #[tauri::command]
@@ -71,18 +76,17 @@ fn start_live_share(relay_url: String, session_id: String) -> Result<(), String>
     }
 
     let port = server::current_port().ok_or_else(|| "Local server is not running.".to_string())?;
-    let repo = server::repo_root();
-    let script = repo.join("packages/openmd-relay/bin/openmd-relay-client.mjs");
+    let paths = server::resolve_paths()?;
 
-    let child = Command::new("node")
-        .arg(&script)
+    let child = Command::new(&paths.node)
+        .arg(&paths.relay_script)
         .arg("--relay-url")
         .arg(&relay_url)
         .arg("--session-id")
         .arg(&session_id)
         .arg("--local-port")
         .arg(port.to_string())
-        .current_dir(&repo)
+        .current_dir(&paths.working_dir)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
@@ -112,7 +116,7 @@ fn return_to_launcher(window: tauri::WebviewWindow) -> Result<(), String> {
 
     let shell_workspace = server::shell_workspace();
     let shell = shell_workspace.to_string_lossy().to_string();
-    let _ = server::start_server(&shell)?;
+    let _ = server::start_server(&shell);
 
     window
         .set_size(tauri::Size::Logical(tauri::LogicalSize {
@@ -127,11 +131,12 @@ fn return_to_launcher(window: tauri::WebviewWindow) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    if let Err(error) = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
             create_project,
+            get_local_server_url,
             start_local_server,
             stop_local_server,
             open_editor_window,
@@ -140,20 +145,27 @@ pub fn run() {
             return_to_launcher,
         ])
         .setup(|app| {
+            server::init_app_handle(app.handle().clone());
             menu::setup_menu(app.handle())?;
 
             let shell_workspace = server::shell_workspace();
             let shell = shell_workspace.to_string_lossy().to_string();
 
             if cfg!(debug_assertions) && server::is_healthy(server::DEV_SERVER_PORT) {
-                server::adopt_running_server(server::DEV_SERVER_PORT, &shell)?;
-                return Ok(());
+                let _ = server::adopt_running_server(server::DEV_SERVER_PORT, &shell);
+            } else if let Err(start_error) = server::start_server(&shell) {
+                eprintln!("openmd-server failed to start: {start_error}");
             }
 
-            let port = server::start_server(&shell)?;
-
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = navigate_window(&window, &format!("http://127.0.0.1:{port}/launcher"));
+            if cfg!(debug_assertions) {
+                if let Some(port) = server::current_port() {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = navigate_window(
+                            &window,
+                            &format!("http://127.0.0.1:{port}/launcher"),
+                        );
+                    }
+                }
             }
 
             Ok(())
@@ -162,5 +174,8 @@ pub fn run() {
             menu::handle_menu_event(app, event.id().as_ref());
         })
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+    {
+        eprintln!("error while running tauri application: {error}");
+        std::process::exit(1);
+    }
 }

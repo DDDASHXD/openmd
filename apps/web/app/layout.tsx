@@ -1,6 +1,7 @@
 import { Geist, Geist_Mono } from 'next/font/google'
 
 import '@workspace/ui/globals.css'
+import { DesktopBootstrap } from '@/components/desktop-bootstrap'
 import { MenuOverlays } from '@/components/menu-overlays'
 import { NativeMenuListener } from '@/components/native-menu-listener'
 import { ThemeProvider } from '@/components/theme-provider'
@@ -36,6 +37,7 @@ export default function RootLayout({
         <ThemeProvider>
           <SettingsProvider>
             <CommandPaletteProvider>
+              <DesktopBootstrap />
               <NativeMenuListener />
               {children}
               <MenuOverlays />

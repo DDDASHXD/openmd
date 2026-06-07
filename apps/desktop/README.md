@@ -56,6 +56,20 @@ The `Release Desktop` workflow (`.github/workflows/release-desktop.yml` at the r
 
 Bump `version` in `apps/desktop/src-tauri/tauri.conf.json` (and `Cargo.toml` if needed) before tagging so the release matches the app version.
 
+### macOS "app is damaged" warning
+
+GitHub release builds are ad-hoc signed (not notarized). After copying the app out of the DMG, macOS may block the first launch.
+
+**Fix:**
+
+```bash
+xattr -cr /Applications/openmd.app
+```
+
+Or right-click **openmd.app** → **Open** → **Open** again.
+
+For a fully trusted install (no workaround), set up Apple Developer code signing + notarization in CI. See [Tauri macOS signing](https://v2.tauri.app/distribute/sign/macos/).
+
 ## Tauri commands
 
 | Command | Purpose |

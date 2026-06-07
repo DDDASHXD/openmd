@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { createRequire } from 'node:module'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -7,6 +8,9 @@ const scriptDirectory = path.dirname(fileURLToPath(import.meta.url))
 const webDirectory = path.resolve(scriptDirectory, '..')
 const apiDirectory = path.join(webDirectory, 'app/api')
 const apiStashDirectory = path.join(webDirectory, '.tauri-api-stash')
+
+const require = createRequire(path.join(webDirectory, 'package.json'))
+const nextBuildScript = require.resolve('next/dist/bin/next')
 
 const stashApiRoutes = async () => {
   try {
@@ -29,8 +33,8 @@ const restoreApiRoutes = async () => {
 }
 
 const runNextBuild = () =>
-  new Promise((resolve) => {
-    const child = spawn('pnpm', ['exec', 'next', 'build'], {
+  new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [nextBuildScript, 'build'], {
       cwd: webDirectory,
       stdio: 'inherit',
       env: {
@@ -39,6 +43,7 @@ const runNextBuild = () =>
       },
     })
 
+    child.on('error', reject)
     child.on('close', (code) => {
       resolve(code ?? 1)
     })

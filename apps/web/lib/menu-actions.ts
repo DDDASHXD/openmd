@@ -1,5 +1,5 @@
 import { exportMarkdownFiles } from '@/lib/export-markdown'
-import { isTauri, returnToLauncher } from '@/lib/tauri-client'
+import { getLocalServerUrl, isTauri, returnToLauncher } from '@/lib/tauri-client'
 import { useLeafmarkStore } from '@/stores/leafmark.store'
 import { useMenuUiStore } from '@/stores/menu-ui.store'
 import { useSessionStore } from '@/stores/session.store'
@@ -29,6 +29,11 @@ export const executeMenuAction = async (
 
       if (isTauri()) {
         await returnToLauncher()
+        const serverUrl = await getLocalServerUrl()
+
+        if (serverUrl) {
+          useSessionStore.getState().setServerUrl(serverUrl)
+        }
       }
 
       context.navigateToLauncher()
