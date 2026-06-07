@@ -20,7 +20,7 @@
     "typecheck": "turbo typecheck",
     "desktop:dev": "pnpm --filter desktop dev",
     "desktop:build": "pnpm --filter desktop build",
-    "server:headless": "openmd-server --headless --workspace ./test-workspace --port 8787 --hostname 127.0.0.1"
+    "server:headless": "openmd-server --headless --workspace ./test-workspace --port 8787 --hostname 0.0.0.0"
   },
   "devDependencies": {
     "@workspace/eslint-config": "workspace:*",
