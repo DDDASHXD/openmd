@@ -4,7 +4,7 @@ This document is for automated agents and new contributors. It explains how the 
 
 ## What this project is
 
-OpenMD is a local-first markdown/code workspace UI: file tree, multi-pane editor (Monaco for text), tiling via drag-to-edge splits, optional terminal, and Yjs-based collaboration over WebSockets. The desktop/CLI entry is `openmd` (see `bin/openmd.mjs`), which boots the custom Node server in `apps/web/server.mjs`.
+OpenMD is a local-first markdown/code workspace UI: file tree, multi-pane editor (Monaco for text), tiling via drag-to-edge splits, and Yjs-based collaboration over WebSockets. The desktop/CLI entry is `openmd` (see `bin/openmd.mjs`), which boots the custom Node server in `apps/web/server.mjs`.
 
 Package manager: **pnpm** (see root `packageManager`). Node **>= 20**. Orchestration: **Turborepo** (`turbo.json`).
 
@@ -13,7 +13,7 @@ Package manager: **pnpm** (see root `packageManager`). Node **>= 20**. Orchestra
 | Path | Role |
 |------|------|
 | `apps/web/` | Next.js 16 app (UI, `app/`, components, API route files) |
-| `apps/web/server.mjs` | **Authoritative runtime** for HTTP upgrade, workspace file API, collaboration WS, terminal PTY |
+| `apps/web/server.mjs` | **Authoritative runtime** for HTTP upgrade, workspace file API, and collaboration WS |
 | `bin/openmd.mjs` | Delegates to `apps/web/server.mjs` |
 | `packages/ui/` | Shared shadcn-style components (`@workspace/ui`) |
 | `packages/eslint-config/`, `packages/typescript-config/` | Shared tooling |
@@ -61,10 +61,6 @@ End users can also run `pnpx openmd` / `pnpx openmd --workspace /path` (see root
 
 - Yjs + `y-monaco` + `y-websocket`; provider URL from `monaco-editor.tsx` (`/collaboration` WebSocket).
 - `server.mjs` wires Yjs `setupWSConnection` for the collaboration path. Be careful with binding lifecycle (avoid double-destroy on tab close).
-
-### Terminal
-
-- `node-pty` + xterm; started from `server.mjs` with `cwd: workspaceRoot`.
 
 ### Drag and drop conventions
 

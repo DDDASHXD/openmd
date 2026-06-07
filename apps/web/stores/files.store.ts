@@ -68,6 +68,7 @@ interface FilesStore {
   treeDragSourcePath: string | null
   treeDragSourceIsDirectory: boolean
   workspaceDropHighlight: WorkspaceDropHighlight | null
+  previewModeByGroup: Record<string, boolean>
 
   setRootName: (rootName: string) => void
   setFileDragActive: (active: boolean) => void
@@ -94,6 +95,9 @@ interface FilesStore {
   reorderFilesInGroup: (groupId: string, fromIndex: number, toIndex: number) => void
 
   applyPathMove: (fromPath: string, toPath: string, isDirectory: boolean) => void
+
+  setPreviewMode: (groupId: string, enabled: boolean) => void
+  togglePreviewMode: (groupId: string) => void
 }
 
 export const useFilesStore = create<FilesStore>()((set) => ({
@@ -107,6 +111,7 @@ export const useFilesStore = create<FilesStore>()((set) => ({
   treeDragSourcePath: null,
   treeDragSourceIsDirectory: false,
   workspaceDropHighlight: null,
+  previewModeByGroup: {},
 
   setRootName: (rootName) => set({ rootName }),
   setFileDragActive: (fileDragActive) => set({ fileDragActive }),
@@ -439,4 +444,17 @@ export const useFilesStore = create<FilesStore>()((set) => ({
         groups: remapPathsInGroups(state.groups, remap),
       }
     }),
+
+  setPreviewMode: (groupId, enabled) =>
+    set((state) => ({
+      previewModeByGroup: { ...state.previewModeByGroup, [groupId]: enabled },
+    })),
+
+  togglePreviewMode: (groupId) =>
+    set((state) => ({
+      previewModeByGroup: {
+        ...state.previewModeByGroup,
+        [groupId]: !state.previewModeByGroup[groupId],
+      },
+    })),
 }))

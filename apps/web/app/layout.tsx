@@ -1,9 +1,11 @@
 import { Geist, Geist_Mono } from 'next/font/google'
-import localFont from 'next/font/local'
 
 import '@workspace/ui/globals.css'
-import '@xterm/xterm/css/xterm.css'
+import { MenuOverlays } from '@/components/menu-overlays'
+import { NativeMenuListener } from '@/components/native-menu-listener'
 import { ThemeProvider } from '@/components/theme-provider'
+import { CommandPaletteProvider } from '@/hooks/use-command-palette'
+import { SettingsProvider } from '@/components/settings-provider'
 import { cn } from '@workspace/ui/lib/utils'
 
 const fontSans = Geist({
@@ -12,10 +14,6 @@ const fontSans = Geist({
 })
 
 const geistMono = Geist_Mono({ subsets: ['latin'], variable: '--font-mono' })
-const terminalFont = localFont({
-  src: '../../fonts/MesloLGS NF Regular.ttf',
-  variable: '--font-terminal',
-})
 
 export default function RootLayout({
   children,
@@ -31,12 +29,19 @@ export default function RootLayout({
         fontSans.variable,
         'font-mono',
         geistMono.variable,
-        terminalFont.variable,
         'bg-secondary',
       )}
     >
       <body>
-        <ThemeProvider>{children}</ThemeProvider>
+        <ThemeProvider>
+          <SettingsProvider>
+            <CommandPaletteProvider>
+              <NativeMenuListener />
+              {children}
+              <MenuOverlays />
+            </CommandPaletteProvider>
+          </SettingsProvider>
+        </ThemeProvider>
       </body>
     </html>
   )

@@ -1,0 +1,19 @@
+{
+  "name": "desktop",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "setup:rust": "sh scripts/setup-rust.sh",
+    "dev:stop": "sh scripts/stop-dev-server.sh",
+    "dev:server": "node scripts/dev-server.mjs",
+    "dev": "sh scripts/dev.sh",
+    "build": "sh -c 'export PATH=\"${HOME}/.cargo/bin:${PATH}\"; pnpm exec tauri build'",
+    "typecheck": "echo 'no types'"
+  },
+  "dependencies": {
+    "@openmd/server": "workspace:*"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.2.7"
+  }
+}

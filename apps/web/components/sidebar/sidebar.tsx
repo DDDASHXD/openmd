@@ -1,6 +1,8 @@
 'use client'
 
+import { backendFetch } from '@/lib/backend-client'
 import { useFilesStore, type WorkspaceEntry } from '@/stores/files.store'
+import { useSettingsStore } from '@/stores/settings.store'
 import { hasAnyOpenEditor } from '@/lib/editor-layout'
 import { OPENMD_PATH_MIME, OPENMD_IS_DIR_MIME } from '@/lib/openmd-dnd'
 import {
@@ -40,7 +42,7 @@ type DeleteEntryResponse = {
 }
 
 const getEntries = async (path: string) => {
-  const response = await fetch(`/api/workspace?path=${encodeURIComponent(path)}`)
+  const response = await backendFetch(`/api/workspace?path=${encodeURIComponent(path)}`)
   const data = (await response.json()) as WorkspaceResponse
 
   if (!response.ok) {
@@ -51,7 +53,7 @@ const getEntries = async (path: string) => {
 }
 
 const createEntry = async (path: string, name: string, type: 'file' | 'directory') => {
-  const response = await fetch('/api/workspace', {
+  const response = await backendFetch('/api/workspace', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, name, type }),
@@ -66,7 +68,7 @@ const createEntry = async (path: string, name: string, type: 'file' | 'directory
 }
 
 const deleteEntry = async (path: string) => {
-  const response = await fetch('/api/workspace', {
+  const response = await backendFetch('/api/workspace', {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path }),
@@ -81,7 +83,7 @@ const deleteEntry = async (path: string) => {
 }
 
 const moveEntry = async (path: string, toDirectory: string) => {
-  const response = await fetch('/api/workspace', {
+  const response = await backendFetch('/api/workspace', {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, toDirectory }),
@@ -174,6 +176,7 @@ const DirectoryChildren = ({
   const [error, setError] = React.useState<string | null>(null)
   const openFile = useFilesStore((state) => state.openFile)
   const workspaceRevision = useFilesStore((state) => state.workspaceRevision)
+  const showHiddenFiles = useSettingsStore((state) => state.settings.workspace.showHiddenFiles)
 
   const loadEntries = React.useCallback(() => {
     let cancelled = false
@@ -220,6 +223,13 @@ const DirectoryChildren = ({
     return cleanup
   }, [loadEntries, refreshSignal, workspaceRevision])
 
+  const filteredEntries = React.useMemo(() => {
+    if (showHiddenFiles) {
+      return entries
+    }
+    return entries.filter((entry) => !entry.name.startsWith('.'))
+  }, [entries, showHiddenFiles])
+
   if (loading) {
     return (
       <div
@@ -241,7 +251,7 @@ const DirectoryChildren = ({
 
   return (
     <>
-      {entries.map((entry) => (
+      {filteredEntries.map((entry) => (
         <TreeItem key={entry.path} entry={entry} depth={depth} onDirectoryChange={loadEntries} onWorkspaceDrop={onWorkspaceDrop} />
       ))}
     </>
@@ -579,7 +589,7 @@ const Sidebar = () => {
           formData.append('file', file)
 
           try {
-            const response = await fetch('/api/workspace', {
+            const response = await backendFetch('/api/workspace', {
               method: 'PUT',
               body: formData,
             })

@@ -1,7 +1,37 @@
+# Dependencies
+node_modules/
+
+# Build / cache
 .turbo/
 .next/
-node_modules/
+out/
+dist/
+build/
+
+# Rust / Cargo
+target/
+**/target/
+
+# Tauri generated assets
+apps/desktop/src-tauri/gen/
+
+# Environment
 .env
 .env.local
-.pnpm-lock.yaml
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Local test workspace
 test-workspace/

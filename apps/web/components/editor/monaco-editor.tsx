@@ -1,10 +1,11 @@
 'use client'
 
 import Editor, { loader } from '@monaco-editor/react'
+import { getCollaborationWsUrl } from '@/lib/backend-client'
 import { useCollaborationStore } from '@/stores/collaboration.store'
 import { useFilesStore } from '@/stores/files.store'
-import { Button } from '@workspace/ui/components/button'
-import { Input } from '@workspace/ui/components/input'
+import { useSettingsStore } from '@/stores/settings.store'
+import { useFileContentStore } from '@/stores/file-content.store'
 import React from 'react'
 import type { OnMount } from '@monaco-editor/react'
 import type { editor as MonacoEditorNamespace } from 'monaco-editor'
@@ -45,11 +46,7 @@ const getNameColor = (name: string) => {
   return colorPalette[hash % colorPalette.length] ?? '#2563eb'
 }
 
-const getCollaborationUrl = () => {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-
-  return `${protocol}//${window.location.host}/collaboration`
-}
+const getCollaborationUrl = () => getCollaborationWsUrl()
 
 const getCssString = (value: string) => JSON.stringify(value)
 
@@ -62,9 +59,9 @@ export const MonacoEditor = ({
   const [editor, setEditor] =
     React.useState<MonacoEditorNamespace.IStandaloneCodeEditor | null>(null)
   const [name, setName] = React.useState<string | null | undefined>(undefined)
-  const [draftName, setDraftName] = React.useState('')
   const activeFile = useFilesStore((state) => state.groups[groupId]?.activeFile ?? null)
   const { setCollaborators, setConnectionStatus } = useCollaborationStore()
+  const editorSettings = useSettingsStore((state) => state.settings.editor)
 
   React.useEffect(() => {
     let cancelled = false
@@ -83,15 +80,35 @@ export const MonacoEditor = ({
   }, [])
 
   React.useEffect(() => {
-    const savedName = window.localStorage.getItem(nameStorageKey)
-    const cleanName = savedName?.trim()
+    if (!editor || !activeFile) return
 
-    if (cleanName) {
-      setName(cleanName)
-      setDraftName(cleanName)
-    } else {
-      setName(null)
+    useFileContentStore.getState().registerEditor(activeFile, editor)
+
+    const model = editor.getModel()
+    if (!model) {
+      return () => {
+        useFileContentStore.getState().unregisterEditor(activeFile)
+      }
     }
+
+    useFileContentStore.getState().setFileContent(activeFile, model.getValue())
+
+    const contentDisposable = model.onDidChangeContent(() => {
+      useFileContentStore.getState().setFileContent(activeFile, model.getValue())
+    })
+
+    return () => {
+      contentDisposable.dispose()
+      useFileContentStore.getState().unregisterEditor(activeFile)
+    }
+  }, [editor, activeFile])
+
+  React.useEffect(() => {
+    const savedName = window.localStorage.getItem(nameStorageKey)
+    const cleanName = savedName?.trim() || 'You'
+
+    window.localStorage.setItem(nameStorageKey, cleanName)
+    setName(cleanName)
   }, [])
 
   React.useEffect(() => {
@@ -254,19 +271,6 @@ export const MonacoEditor = ({
     setEditor(mountedEditor)
   }, [])
 
-  const handleNameSubmit = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-
-    const cleanName = draftName.trim()
-
-    if (!cleanName) {
-      return
-    }
-
-    window.localStorage.setItem(nameStorageKey, cleanName)
-    setName(cleanName)
-  }
-
   if (!ready) {
     return (
       <div
@@ -289,38 +293,19 @@ export const MonacoEditor = ({
         defaultValue={defaultValue}
         onMount={handleMount}
         options={{
-          minimap: { enabled: false },
-          scrollBeyondLastLine: false,
-          fontSize: 14,
+          minimap: { enabled: editorSettings.minimap.enabled },
+          scrollBeyondLastLine: editorSettings.scrollBeyondLastLine,
+          fontSize: editorSettings.fontSize,
+          tabSize: editorSettings.tabSize,
+          wordWrap: editorSettings.wordWrap,
+          rulers: editorSettings.rulers,
           automaticLayout: true,
+          // Disable word-based suggestions - they interfere with citation completion
+          suggest: {
+            showWords: false,
+          },
         }}
       />
-      {name === null && (
-        <div className="bg-background/70 absolute inset-0 z-40 flex items-center justify-center p-4 backdrop-blur-sm">
-          <form
-            className="bg-popover text-popover-foreground grid w-full max-w-sm gap-3 border p-4 shadow-lg"
-            onSubmit={handleNameSubmit}
-          >
-            <div className="grid gap-1">
-              <h2 className="text-sm font-medium">Enter your name</h2>
-              <p className="text-muted-foreground text-xs">
-                Your name is saved on this device for future editing sessions.
-              </p>
-            </div>
-            <Input
-              autoFocus
-              value={draftName}
-              onChange={(event) => setDraftName(event.target.value)}
-              placeholder="Name"
-            />
-            <div className="flex justify-end">
-              <Button type="submit" disabled={!draftName.trim()}>
-                Continue
-              </Button>
-            </div>
-          </form>
-        </div>
-      )}
     </div>
   )
 }

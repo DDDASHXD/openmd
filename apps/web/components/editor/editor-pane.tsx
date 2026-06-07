@@ -1,11 +1,13 @@
 'use client'
 
 import { MonacoEditor } from '@/components/editor/monaco-editor'
+import { MarkdownPreview } from '@/components/editor/markdown-preview'
 import { PdfViewer } from '@/components/editor/pdf-viewer'
-import { getWorkspaceEditorKind } from '@/lib/workspace-editor-kind'
+import { getWorkspaceEditorKind, isMarkdownFile } from '@/lib/workspace-editor-kind'
 import { OPENMD_PATH_MIME, isTreeDirectoryDrag } from '@/lib/openmd-dnd'
 import { useFilesStore } from '@/stores/files.store'
 import React from 'react'
+import { Group, Panel, Separator } from 'react-resizable-panels'
 import { ImageViewer } from './image-viewer'
 
 export type EditorPaneProps = {
@@ -14,8 +16,10 @@ export type EditorPaneProps = {
 
 export const EditorPane = ({ groupId }: EditorPaneProps) => {
   const activeFile = useFilesStore((state) => state.groups[groupId]?.activeFile ?? null)
+  const previewOpen = useFilesStore((state) => state.previewModeByGroup[groupId] ?? false)
   const openFileInGroup = useFilesStore((state) => state.openFileInGroup)
   const kind = activeFile ? getWorkspaceEditorKind(activeFile) : null
+  const showMarkdownPreview = Boolean(activeFile && previewOpen && isMarkdownFile(activeFile))
 
   const handleDragOver = (event: React.DragEvent) => {
     if (![...event.dataTransfer.types].includes(OPENMD_PATH_MIME)) {
@@ -38,14 +42,28 @@ export const EditorPane = ({ groupId }: EditorPaneProps) => {
     openFileInGroup(groupId, path)
   }
 
-  const displayEditor = (activeFile: string) => {
+  const displayEditor = (filePath: string) => {
     switch (kind) {
       case 'text':
+        if (showMarkdownPreview) {
+          return (
+            <Group orientation="horizontal" className="h-full min-h-0 min-w-0 flex-1">
+              <Panel defaultSize={50} minSize={20} className="min-h-0 min-w-0">
+                <MonacoEditor groupId={groupId} />
+              </Panel>
+              <Separator className="bg-border w-1 shrink-0" />
+              <Panel defaultSize={50} minSize={20} className="min-h-0 min-w-0">
+                <MarkdownPreview path={filePath} />
+              </Panel>
+            </Group>
+          )
+        }
+
         return <MonacoEditor groupId={groupId} />
       case 'pdf':
-        return <PdfViewer path={activeFile} />
+        return <PdfViewer path={filePath} />
       case 'image':
-        return <ImageViewer path={activeFile} />
+        return <ImageViewer path={filePath} />
       default:
         return null
     }

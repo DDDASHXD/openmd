@@ -3,14 +3,23 @@
   "version": "0.0.1",
   "private": false,
   "bin": {
-    "openmd": "./bin/openmd.mjs"
+    "openmd": "./bin/openmd.mjs",
+    "openmd-server": "./packages/openmd-server/bin/openmd-server.mjs",
+    "openmd-relay": "./packages/openmd-relay/bin/openmd-relay.mjs",
+    "openmd-relay-client": "./packages/openmd-relay/bin/openmd-relay-client.mjs"
+  },
+  "dependencies": {
+    "@openmd/server": "workspace:*",
+    "@openmd/relay": "workspace:*"
   },
   "scripts": {
     "build": "turbo build",
     "dev": "turbo dev",
     "lint": "turbo lint",
     "format": "turbo format",
-    "typecheck": "turbo typecheck"
+    "typecheck": "turbo typecheck",
+    "desktop:dev": "pnpm --filter desktop dev",
+    "server:headless": "openmd-server --headless --workspace ./test-workspace --port 8787 --hostname 127.0.0.1"
   },
   "devDependencies": {
     "@workspace/eslint-config": "workspace:*",

@@ -1,0 +1,20 @@
+{
+  "name": "@openmd/relay",
+  "version": "0.0.1",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "openmd-relay": "./bin/openmd-relay.mjs",
+    "openmd-relay-client": "./bin/openmd-relay-client.mjs"
+  },
+  "exports": {
+    ".": "./src/server.mjs",
+    "./client": "./src/relay-client.mjs"
+  },
+  "scripts": {
+    "dev": "node bin/openmd-relay.mjs"
+  },
+  "dependencies": {
+    "ws": "^8.20.0"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "name": "@openmd/server",
+  "version": "0.0.1",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "openmd-server": "./bin/openmd-server.mjs"
+  },
+  "exports": {
+    ".": "./src/create-server.mjs",
+    "./project-template": "./src/lib/project-template.mjs"
+  },
+  "scripts": {
+    "typecheck": "echo 'no types'",
+    "dev": "node bin/openmd-server.mjs"
+  },
+  "dependencies": {
+    "@skxv/leafmark": "^0.1.9",
+    "busboy": "^1.6.0",
+    "next": "16.1.6",
+    "ws": "^8.20.0",
+    "y-websocket": "^1.5.4"
+  }
+}

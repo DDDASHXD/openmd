@@ -4,8 +4,10 @@ import React from 'react'
 import { useCollaborationStore } from '@/stores/collaboration.store'
 import { useFilesStore, type OpenFile } from '@/stores/files.store'
 import { cn } from '@workspace/ui/lib/utils'
+import { Toggle } from '@workspace/ui/components/toggle'
 import { OPENMD_PATH_MIME, OPENMD_SOURCE_GROUP_MIME, isTreeDirectoryDrag } from '@/lib/openmd-dnd'
-import { X } from 'lucide-react'
+import { isMarkdownFile } from '@/lib/workspace-editor-kind'
+import { Eye, X } from 'lucide-react'
 
 const reorderTabIndex = (fromIndex: number, targetFinalIndex: number, length: number) => {
   let toAfterRemove = targetFinalIndex
@@ -122,12 +124,15 @@ const TabRow = ({
 const EditorTabs = ({ groupId }: { groupId: string }) => {
   const collaborators = useCollaborationStore((state) => state.collaborators)
   const group = useFilesStore((state) => state.groups[groupId])
+  const previewOpen = useFilesStore((state) => state.previewModeByGroup[groupId] ?? false)
+  const togglePreviewMode = useFilesStore((state) => state.togglePreviewMode)
   const reorderFilesInGroup = useFilesStore((state) => state.reorderFilesInGroup)
   const openFileInGroup = useFilesStore((state) => state.openFileInGroup)
   const setFileDragActive = useFilesStore((state) => state.setFileDragActive)
 
   const openFiles = group?.openFiles ?? []
   const activeFile = group?.activeFile ?? null
+  const showPreviewToggle = Boolean(activeFile && isMarkdownFile(activeFile))
 
   const handleStripDragOver = (event: React.DragEvent) => {
     if ([...event.dataTransfer.types].includes(OPENMD_PATH_MIME)) {
@@ -182,10 +187,10 @@ const EditorTabs = ({ groupId }: { groupId: string }) => {
           onDragEnd={handleStripDragStartCleanup}
         />
       </div>
-      {openFiles.length > 0 && (
+      {openFiles.length > 0 && collaborators.some((collaborator) => !collaborator.isLocal) && (
         <div className="px-4 py-2 pl-6 flex gap-2 items-center border-b">
           <div className="avatars flex">
-            {collaborators.slice(0, 3).map((collaborator) => (
+            {collaborators.filter((c) => !c.isLocal).slice(0, 3).map((collaborator) => (
               <div
                 key={collaborator.id}
                 className="size-6 bg-background rounded-full -ml-2 relative isolate p-[3px]"
@@ -199,8 +204,23 @@ const EditorTabs = ({ groupId }: { groupId: string }) => {
             ))}
           </div>
           <p className="text-xs">
-            {collaborators.length === 1 ? '1 person here' : `${collaborators.length} people here`}
+            {collaborators.filter((c) => !c.isLocal).length === 1
+              ? '1 collaborator here'
+              : `${collaborators.filter((c) => !c.isLocal).length} collaborators here`}
           </p>
+          {showPreviewToggle && (
+            <Toggle
+              pressed={previewOpen}
+              onPressedChange={() => togglePreviewMode(groupId)}
+              size="sm"
+              variant="outline"
+              className="ml-auto"
+              aria-label={previewOpen ? 'Hide markdown preview' : 'Show markdown preview'}
+              title={previewOpen ? 'Hide preview' : 'Show preview'}
+            >
+              <Eye />
+            </Toggle>
+          )}
         </div>
       )}
     </div>
