@@ -69,16 +69,37 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Verify release tag matches VERSION
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.release_tag }}"
+          else
+            TAG="${{ github.ref_name }}"
+          fi
+
+          VERSION="$(tr -d '[:space:]' < VERSION)"
+          EXPECTED_TAG="v${VERSION}"
+
+          if [ "$TAG" != "$EXPECTED_TAG" ]; then
+            echo "Release tag mismatch."
+            echo "  tag:      $TAG"
+            echo "  expected: $EXPECTED_TAG (from VERSION file)"
+            exit 1
+          fi
+
+          pnpm version:check
+
       - name: Build and release
         uses: tauri-apps/tauri-action@action-v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OPENMD_BUNDLE_NODE_ARCH: ${{ matrix.bundle_node_arch }}
+          FOLIAGE_BUNDLE_NODE_ARCH: ${{ matrix.bundle_node_arch }}
         with:
           projectPath: apps/desktop
           tauriScript: pnpm exec tauri
           tagName: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag || github.ref_name }}
-          releaseName: openmd ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag || github.ref_name }}
+          releaseName: foliage ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag || github.ref_name }}
           releaseBody: |
             Desktop builds for macOS (Apple Silicon and Intel), Windows, and Linux.
 
@@ -89,7 +110,7 @@ jobs:
             If macOS says the app is "damaged", remove the download quarantine flag:
 
             ```bash
-            xattr -cr /Applications/openmd.app
+            xattr -cr /Applications/foliage.app
             ```
 
             Or right-click the app and choose **Open** (first launch only).

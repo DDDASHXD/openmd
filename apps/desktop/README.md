@@ -1,6 +1,6 @@
 # Foliage Desktop (Tauri)
 
-Desktop shell that spawns an embedded `foliage-server`, shows the Obsidian-style launcher, and opens the editor workspace.
+Desktop shell that runs an embedded `foliage-server` sidecar, shows the launcher, and opens the editor workspace.
 
 ## Requirements
 
@@ -18,22 +18,23 @@ pnpm --filter desktop setup:rust   # once: installs Rust 1.88 via rustup
 pnpm desktop:dev
 ```
 
-If you see `rustc 1.86.0 is not supported`, your shell is using Homebrew Rust instead of rustup. Run `setup:rust` and use `pnpm desktop:dev` (not `tauri dev` directly).
+`pnpm desktop:dev` runs:
 
-If you see `Unable to acquire lock at .../.next/dev/lock`, a previous dev server is still running:
+1. `setup-dev-sidecar.mjs` – symlinks system Node into `src-tauri/binaries/node-{triple}` for Tauri dev
+2. `dev.mjs` (beforeDevCommand) – starts `foliage-server` on `http://127.0.0.1:8787` and Vite on `http://127.0.0.1:5173`
+3. `tauri dev` – opens the webview at `http://127.0.0.1:5173/launcher`
+
+If ports are stuck:
 
 ```bash
 pnpm --filter desktop dev:stop
 pnpm desktop:dev
 ```
 
-`tauri dev` runs `pnpm run dev:server` first, which starts `foliage-server` on `http://127.0.0.1:3000/launcher`. Tauri waits for that URL, then opens the desktop window.
-
 On first launch the app:
 
-1. Starts `foliage-server` with a shell workspace at `~/.foliage/shell`
-2. Loads `http://127.0.0.1:<port>/launcher`
-3. Restarts the server with the chosen project workspace when you open/create a project
+1. Adopts or starts `foliage-server` with shell workspace `~/.foliage/shell`
+2. Switches workspace via `PATCH /api/workspace/session` when you open/create a project (no server respawn)
 
 ## Build
 
@@ -41,45 +42,35 @@ On first launch the app:
 pnpm desktop:build
 ```
 
-This runs a static Next.js export (`apps/web/out`) and bundles the Tauri app.
+This builds the Vite client (`apps/client/dist`), bundles `foliage-server` + Node sidecar, and packages the Tauri app.
 
 ## Releases
 
-GitHub Releases are built automatically when you push a version tag:
+Push a version tag to trigger the `Release Desktop` workflow:
 
 ```bash
 git tag v0.0.1
 git push origin v0.0.1
 ```
 
-The `Release Desktop` workflow (`.github/workflows/release-desktop.yml` at the repo root) builds macOS (arm64 + x64), Windows, and Linux installers and uploads them to the GitHub release for that tag.
-
-Bump `version` in `apps/desktop/src-tauri/tauri.conf.json` (and `Cargo.toml` if needed) before tagging so the release matches the app version.
+Bump `version` in `apps/desktop/src-tauri/tauri.conf.json` before tagging.
 
 ### macOS "app is damaged" warning
-
-GitHub release builds are ad-hoc signed (not notarized). After copying the app out of the DMG, macOS may block the first launch.
-
-**Fix:**
 
 ```bash
 xattr -cr /Applications/foliage.app
 ```
 
-Or right-click **foliage.app** → **Open** → **Open** again.
-
-For a fully trusted install (no workaround), set up Apple Developer code signing + notarization in CI. See [Tauri macOS signing](https://v2.tauri.app/distribute/sign/macos/).
+Or right-click **foliage.app** → **Open**.
 
 ## Tauri commands
 
 | Command | Purpose |
 |---------|---------|
-| `pick_folder` | Native folder picker |
-| `pick_save_location` | New project path picker |
-| `create_project` | Write project scaffold |
-| `start_local_server` | Spawn/restart embedded server |
+| `get_local_server_url` | Current embedded server URL |
+| `start_local_server` | Switch workspace on running server |
 | `stop_local_server` | Stop embedded server |
 | `open_editor_window` | Resize to editor dimensions |
-| `start_live_share` | Start relay tunnel client |
-| `stop_live_share` | Stop relay tunnel client |
-| `return_to_launcher` | Stop share/server and return to launcher |
+| `return_to_launcher` | Return to launcher workspace/size |
+
+Filesystem and live-share actions use the server HTTP API from the client (no separate Rust spawns).

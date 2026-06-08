@@ -8,7 +8,7 @@ Foliage is a local-first writing workspace for markdown projects. It gives you a
 
 Foliage is built for long-form markdown work that still needs a real project workspace around it: notes, books, reports, papers, documentation, and mixed markdown/code folders.
 
-It is not a hosted editor. Your files live on disk in a normal folder. Foliage starts a local server for that folder, exposes a browser or desktop UI, and writes changes back to the filesystem. That local server also handles collaboration, workspace file operations, and Leafmark builds.
+It is not a hosted editor. Your files live on disk in a normal folder. The desktop app embeds a local `foliage-server` for that folder (even when working offline), and the UI talks to that server for all filesystem, collaboration, and export work.
 
 ## What You Can Do
 
@@ -20,7 +20,7 @@ It is not a hosted editor. Your files live on disk in a normal folder. Foliage s
 - Collaborate with other clients through Yjs and WebSockets
 - Build Leafmark projects to PDF, DOCX, and HTML (more to come)
 - Share a local workspace through a relay when live share is enabled
-- Run as a desktop app, a CLI-launched web app, or a headless server
+- Run a headless workspace server for remote desktop clients
 
 ## Install
 
@@ -43,25 +43,9 @@ xattr -cr /Applications/foliage.app
 
 You can also right-click `foliage.app`, choose **Open**, then confirm.
 
-### CLI
-
-Run Foliage without cloning the repo:
-
-```bash
-pnpx foliage
-```
-
-Open a specific workspace:
-
-```bash
-pnpx foliage --workspace /path/to/project
-```
-
-The CLI starts the Foliage server and UI locally. By default it serves the launcher on port 3000.
-
 ## Creating A Project
 
-1. Start the desktop app or run `pnpx foliage`.
+1. Start the desktop app.
 2. Choose **Create project** in the launcher.
 3. Pick a parent folder and project name.
 4. Open the generated `project/chapter-1.md`.
@@ -84,6 +68,10 @@ The generated project is just a folder on disk. You can edit it from Foliage, yo
 
 Foliage keeps workspace settings in `.foliage/settings.json`. Leafmark-specific project files stay with the selected Leafmark project folder.
 
+## Releases
+
+Desktop builds are published from git tags. See [RELEASING.md](./RELEASING.md) for version bumping and CI/CD workflow.
+
 ## Build From Source
 
 Prerequisites:
@@ -100,12 +88,6 @@ cd foliage
 pnpm install
 ```
 
-Run the web app and local server:
-
-```bash
-pnpm dev
-```
-
 Run the desktop app in development:
 
 ```bash
@@ -113,11 +95,11 @@ pnpm --filter desktop setup:rust
 pnpm desktop:dev
 ```
 
-Build everything:
+Development starts:
 
-```bash
-pnpm build
-```
+- `foliage-server` headless on `http://127.0.0.1:8787`
+- Vite client on `http://127.0.0.1:5173`
+- Tauri webview pointed at the Vite launcher
 
 Build the desktop app:
 
@@ -129,7 +111,7 @@ Desktop build output is written under `apps/desktop/src-tauri/target/release/bun
 
 ## Running A Headless Workspace Server
 
-Foliage can run without serving the full UI. This is useful for a LAN or VPS workspace that desktop or web clients connect to.
+Foliage can run as a standalone API server. This is useful for a LAN or VPS workspace that desktop clients connect to.
 
 ```bash
 pnpx foliage-server \
@@ -138,15 +120,13 @@ pnpx foliage-server \
   --hostname 0.0.0.0
 ```
 
-`--headless` is optional when `--app-dir` is omitted. For full UI mode, pass `--app-dir` to a built or dev Next.js app directory.
-
 Check that it is running:
 
 ```bash
 curl http://127.0.0.1:8787/api/health
 ```
 
-Then use **Connect to server** in the launcher and enter the server URL.
+Then use **Connect to server** in the desktop launcher and enter the server URL.
 
 ## Live Share
 
@@ -157,6 +137,8 @@ The default relay URL is:
 ```text
 https://foliage.skxv.dev
 ```
+
+The desktop app creates relay sessions through the UI. The embedded `foliage-server` opens the tunnel internally via `/api/live-share/start`.
 
 You can also self-host the relay:
 
@@ -175,14 +157,14 @@ See `packages/foliage-relay/README.md` for relay details.
 ## How It Fits Together
 
 ```text
-Desktop app or browser UI
+Desktop app (Tauri + Vite UI)
         |
         v
-foliage-server
+foliage-server (embedded sidecar or remote)
   - workspace filesystem API
   - Yjs collaboration WebSocket
   - Leafmark build API
-  - optional Next.js UI hosting
+  - live share relay tunnel
         |
         +--> local filesystem
         +--> Leafmark PDF/DOCX/HTML outputs
@@ -190,29 +172,26 @@ foliage-server
         +--> optional live share relay
 ```
 
-| Entry point                 | What it runs                                        |
-| --------------------------- | --------------------------------------------------- |
-| `pnpx foliage`              | Local Foliage server plus web UI                    |
-| Desktop app                 | Tauri shell plus embedded Foliage server            |
-| `pnpx foliage-server`       | Workspace API, collaboration, and Leafmark API only |
-| `foliage-relay`             | Public relay for live share                         |
+| Entry point           | What it runs                                        |
+| --------------------- | --------------------------------------------------- |
+| Desktop app           | Vite UI + embedded `foliage-server` sidecar       |
+| `pnpx foliage-server` | Workspace API, collaboration, and Leafmark API only |
+| `foliage-relay`       | Public relay for live share                         |
 
 ## Repository Layout
 
 | Path                       | Role                                                                             |
 | -------------------------- | -------------------------------------------------------------------------------- |
-| `apps/web/`                | Next.js UI for launcher, editor, Leafmark dialogs, and workspace views           |
-| `apps/desktop/`            | Tauri desktop shell and native integrations                                      |
-| `packages/foliage-server/` | Runtime server for filesystem access, collaboration, Leafmark, and headless mode |
-| `packages/foliage-relay/`  | Relay server and relay client for live share                                     |
+| `apps/client/`             | Vite + React UI for launcher, editor, and dialogs                                |
+| `apps/desktop/`            | Tauri desktop shell, sidecar lifecycle, native integrations                        |
+| `packages/foliage-server/` | Runtime server for filesystem access, collaboration, Leafmark, and live share    |
+| `packages/foliage-relay/`  | Relay server for live share                                                      |
 | `packages/ui/`             | Shared UI components                                                             |
-| `bin/foliage.mjs`          | CLI entry for `pnpx foliage`                                                     |
 
 ## Useful Commands
 
 | Command                | Description                                 |
 | ---------------------- | ------------------------------------------- |
-| `pnpm dev`             | Run development tasks through Turborepo     |
 | `pnpm build`           | Build all packages                          |
 | `pnpm typecheck`       | Type-check all workspaces                   |
 | `pnpm lint`            | Lint all workspaces                         |

@@ -16,20 +16,36 @@ const normalizeNodeArch = (arch) => {
   return arch
 }
 
-const bundledNodeArch = () => normalizeNodeArch(process.env.FOLIAGE_BUNDLE_NODE_ARCH ?? process.arch)
+const targetTriple = () => {
+  const arch = normalizeNodeArch(process.env.FOLIAGE_BUNDLE_NODE_ARCH ?? process.arch)
+
+  if (process.platform === 'darwin') {
+    return arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin'
+  }
+
+  if (process.platform === 'linux') {
+    return `${arch === 'arm64' ? 'aarch64' : 'x86_64'}-unknown-linux-gnu`
+  }
+
+  if (process.platform === 'win32') {
+    return 'x86_64-pc-windows-msvc.exe'
+  }
+
+  throw new Error(`Unsupported platform for bundled Node.js: ${process.platform}`)
+}
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url))
 const desktopDirectory = path.resolve(scriptDirectory, '..')
 const repoRoot = path.resolve(desktopDirectory, '../..')
-const resourcesDirectory = path.join(desktopDirectory, 'src-tauri/resources')
+const tauriDirectory = path.join(desktopDirectory, 'src-tauri')
+const resourcesDirectory = path.join(tauriDirectory, 'resources')
 const serverDirectory = path.join(resourcesDirectory, 'foliage-server')
-const relayDirectory = path.join(resourcesDirectory, 'foliage-relay')
-const nodeDirectory = path.join(resourcesDirectory, 'node')
+const binariesDirectory = path.join(tauriDirectory, 'binaries')
 
 const nodeVersion = '20.19.5'
 
 const nodeArchiveName = () => {
-  const arch = bundledNodeArch()
+  const arch = normalizeNodeArch(process.env.FOLIAGE_BUNDLE_NODE_ARCH ?? process.arch)
 
   if (process.platform === 'darwin') {
     return `node-v${nodeVersion}-darwin-${arch}`
@@ -80,44 +96,6 @@ const pnpmCommand = () => {
   return 'pnpm.cmd'
 }
 
-const downloadBundledNode = async () => {
-  const archiveName = nodeArchiveName()
-  const tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'foliage-node-'))
-
-  await fs.rm(nodeDirectory, { recursive: true, force: true })
-  await fs.mkdir(path.join(nodeDirectory, 'bin'), { recursive: true })
-
-  if (process.platform === 'win32') {
-    const archiveFile = `${archiveName}.zip`
-    const downloadUrl = `https://nodejs.org/dist/v${nodeVersion}/${archiveFile}`
-    const archivePath = path.join(tempDirectory, archiveFile)
-
-    await downloadFile(downloadUrl, archivePath)
-    runCommand(
-      `powershell -NoProfile -Command "Expand-Archive -LiteralPath '${archivePath.replace(/'/g, "''")}' -DestinationPath '${tempDirectory.replace(/'/g, "''")}' -Force"`,
-    )
-
-    const extractedNode = path.join(tempDirectory, archiveName, 'node.exe')
-    const targetNode = path.join(nodeDirectory, 'bin', 'node.exe')
-    await fs.copyFile(extractedNode, targetNode)
-  } else {
-    const archiveFile = `${archiveName}.tar.gz`
-    const downloadUrl = `https://nodejs.org/dist/v${nodeVersion}/${archiveFile}`
-    const archivePath = path.join(tempDirectory, archiveFile)
-
-    await downloadFile(downloadUrl, archivePath)
-    runCommand(`tar -xzf "${archivePath}" -C "${tempDirectory}"`)
-
-    const extractedNode = path.join(tempDirectory, archiveName, 'bin', 'node')
-    const targetNode = path.join(nodeDirectory, 'bin', 'node')
-
-    await fs.copyFile(extractedNode, targetNode)
-    await fs.chmod(targetNode, 0o755)
-  }
-
-  await fs.rm(tempDirectory, { recursive: true, force: true })
-}
-
 const removeBrokenSymlinks = async (rootDirectory) => {
   const walk = async (directory) => {
     let entries
@@ -152,63 +130,86 @@ const removeBrokenSymlinks = async (rootDirectory) => {
   await walk(rootDirectory)
 }
 
-const pruneBundledServer = async () => {
-  const pathsToRemove = [
-    path.join(serverDirectory, 'node_modules', '.bin'),
-    path.join(serverDirectory, 'node_modules', 'next'),
-    path.join(serverDirectory, 'apps'),
-    path.join(serverDirectory, 'README.md'),
-    path.join(serverDirectory, 'pnpm-lock.yaml'),
-    path.join(serverDirectory, '.npmrc'),
-  ]
+const downloadBundledNodeSidecar = async () => {
+  const triple = targetTriple()
+  const sidecarName = `node-${triple}`
+  const sidecarPath = path.join(binariesDirectory, sidecarName)
 
-  await Promise.all(
-    pathsToRemove.map((target) => fs.rm(target, { recursive: true, force: true })),
+  await fs.mkdir(binariesDirectory, { recursive: true })
+
+  try {
+    await fs.access(sidecarPath)
+    console.log(`Reusing bundled Node sidecar at ${sidecarPath}`)
+    return
+  } catch {
+    // Download sidecar below.
+  }
+
+  const archiveName = nodeArchiveName()
+  const tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'foliage-node-'))
+
+  if (process.platform === 'win32') {
+    const archiveFile = `${archiveName}.zip`
+    const downloadUrl = `https://nodejs.org/dist/v${nodeVersion}/${archiveFile}`
+    const archivePath = path.join(tempDirectory, archiveFile)
+
+    await downloadFile(downloadUrl, archivePath)
+    runCommand(
+      `powershell -NoProfile -Command "Expand-Archive -LiteralPath '${archivePath.replace(/'/g, "''")}' -DestinationPath '${tempDirectory.replace(/'/g, "''")}' -Force"`,
+    )
+
+    const extractedNode = path.join(tempDirectory, archiveName, 'node.exe')
+    await fs.copyFile(extractedNode, sidecarPath)
+  } else {
+    const archiveFile = `${archiveName}.tar.gz`
+    const downloadUrl = `https://nodejs.org/dist/v${nodeVersion}/${archiveFile}`
+    const archivePath = path.join(tempDirectory, archiveFile)
+
+    await downloadFile(downloadUrl, archivePath)
+    runCommand(`tar -xzf "${archivePath}" -C "${tempDirectory}"`)
+
+    const extractedNode = path.join(tempDirectory, archiveName, 'bin', 'node')
+    await fs.copyFile(extractedNode, sidecarPath)
+    await fs.chmod(sidecarPath, 0o755)
+  }
+
+  await fs.rm(tempDirectory, { recursive: true, force: true })
+
+  console.log(`Bundled Node sidecar at ${sidecarPath}`)
+}
+
+const deployServer = async () => {
+  const deployTarget = path.join('apps', 'desktop', 'src-tauri', 'resources', 'foliage-server')
+
+  runCommand(
+    `${pnpmCommand()} --filter foliage-server deploy --config.node-linker=hoisted ${deployTarget}`,
+    { cwd: repoRoot },
   )
 
-  const nodeModulesDirectory = path.join(serverDirectory, 'node_modules')
+  const deployedServerDirectory = path.join(serverDirectory)
+  await fs.writeFile(
+    path.join(deployedServerDirectory, '.npmrc'),
+    'node-linker=hoisted\n',
+  )
+
+  runCommand(`${pnpmCommand()} install --prod --ignore-workspace`, {
+    cwd: deployedServerDirectory,
+  })
+
+  const nodeModulesDirectory = path.join(deployedServerDirectory, 'node_modules')
 
   try {
     await fs.access(nodeModulesDirectory)
     await removeBrokenSymlinks(nodeModulesDirectory)
   } catch {
-    // node_modules already removed or missing.
+    // node_modules missing.
   }
-}
-
-const copyRelayClient = async () => {
-  await fs.rm(relayDirectory, { recursive: true, force: true })
-  await fs.mkdir(relayDirectory, { recursive: true })
-
-  await fs.cp(
-    path.join(repoRoot, 'packages/foliage-relay/bin/foliage-relay-client.mjs'),
-    path.join(relayDirectory, 'foliage-relay-client.mjs'),
-  )
 }
 
 await fs.rm(resourcesDirectory, { recursive: true, force: true })
 await fs.mkdir(resourcesDirectory, { recursive: true })
 
-const deployTarget = path.join('apps', 'desktop', 'src-tauri', 'resources', 'foliage-server')
-
-runCommand(
-  `${pnpmCommand()} --filter foliage-server deploy --config.node-linker=hoisted ${deployTarget}`,
-  { cwd: repoRoot },
-)
-
-const deployedServerDirectory = path.join(serverDirectory)
-await fs.writeFile(
-  path.join(deployedServerDirectory, '.npmrc'),
-  'node-linker=hoisted\n',
-)
-
-runCommand(`${pnpmCommand()} install --prod --ignore-workspace`, {
-  cwd: deployedServerDirectory,
-})
-
-await pruneBundledServer()
-
-await copyRelayClient()
-await downloadBundledNode()
+await deployServer()
+await downloadBundledNodeSidecar()
 
 console.log(`Bundled release resources at ${resourcesDirectory}`)

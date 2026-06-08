@@ -1,6 +1,6 @@
 [package]
 name = "foliage-desktop"
-version = "0.0.1"
+version = "0.0.4"
 description = "Foliage desktop application"
 authors = ["foliage"]
 edition = "2021"
@@ -13,7 +13,7 @@ crate-type = ["lib", "cdylib", "staticlib"]
 tauri-build = { version = "2.0", features = [] }
 
 [dependencies]
-tauri = { version = "2.0", features = [] }
+tauri = { version = "2.0", features = ["devtools"] }
 tauri-plugin-dialog = "2.0"
 tauri-plugin-shell = "2.0"
 serde = { version = "1", features = ["derive"] }

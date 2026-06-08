@@ -1,9 +1,8 @@
 {
   "name": "foliage",
-  "version": "0.0.1",
+  "version": "0.0.4",
   "private": false,
   "bin": {
-    "foliage": "./bin/foliage.mjs",
     "foliage-server": "./packages/foliage-server/bin/foliage-server.mjs",
     "foliage-relay": "./packages/foliage-relay/bin/foliage-relay.mjs",
     "foliage-relay-client": "./packages/foliage-relay/bin/foliage-relay-client.mjs"
@@ -13,14 +12,20 @@
     "@foliage/relay": "workspace:*"
   },
   "scripts": {
-    "build": "turbo build",
-    "dev": "turbo dev",
+    "build": "pnpm --filter client build",
+    "dev": "pnpm --filter desktop dev",
     "lint": "turbo lint",
     "format": "turbo format",
     "typecheck": "turbo typecheck",
     "desktop:dev": "pnpm --filter desktop dev",
     "desktop:build": "pnpm --filter desktop build",
-    "server:headless": "foliage-server --headless --workspace ./test-workspace --port 8787 --hostname 0.0.0.0"
+    "server:headless": "foliage-server --headless --workspace ./test-workspace --port 8787 --hostname 0.0.0.0",
+    "version:sync": "node scripts/sync-version.mjs",
+    "version:check": "node scripts/sync-version.mjs --check",
+    "release": "node scripts/release.mjs",
+    "release:patch": "node scripts/release.mjs patch",
+    "release:minor": "node scripts/release.mjs minor",
+    "release:major": "node scripts/release.mjs major"
   },
   "devDependencies": {
     "@workspace/eslint-config": "workspace:*",

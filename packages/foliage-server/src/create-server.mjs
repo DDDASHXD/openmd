@@ -15,6 +15,7 @@ import {
   sendJson,
 } from './lib/http-utils.mjs'
 import { createProjectScaffold } from './lib/project-template.mjs'
+import { createRelayClient } from './lib/relay-client.mjs'
 import { createSettingsHandlers } from './lib/settings.mjs'
 import { createWorkspaceApi } from './lib/workspace.mjs'
 
@@ -27,7 +28,6 @@ const { handleLeafmarkRequest } = await import('../lib/leafmark-server.mjs')
 
 export const startServer = async (options = {}) => {
   const argv = options.argv ?? process.argv
-  const dev = options.dev ?? process.env.NODE_ENV !== 'production'
   const requestedPort = getArgumentValue(argv, '--port')
   const hostname =
     options.hostname ?? getArgumentValue(argv, '--hostname') ?? process.env.HOSTNAME ?? '0.0.0.0'
@@ -35,8 +35,6 @@ export const startServer = async (options = {}) => {
     options.port ??
     (requestedPort ? Number.parseInt(requestedPort, 10) : undefined) ??
     Number.parseInt(process.env.PORT ?? '3000', 10)
-  const requestedAppDir = getArgumentValue(argv, '--app-dir')
-  const appDirectory = options.appDirectory ?? requestedAppDir
 
   let headless = options.headless
 
@@ -45,39 +43,20 @@ export const startServer = async (options = {}) => {
   }
 
   if (headless === undefined) {
-    headless = !appDirectory
+    headless = true
   }
-
-  const serveNext = options.serveNext ?? !headless
 
   const requestedWorkspace = getArgumentValue(argv, '--workspace')
   let workspaceRoot = path.resolve(options.workspaceRoot ?? requestedWorkspace ?? process.cwd())
   let workspaceName = path.basename(workspaceRoot) || workspaceRoot
 
-  if (!appDirectory && serveNext) {
-    throw new Error('appDirectory is required when serving Next.js UI. Use --headless or pass --app-dir.')
-  }
-
   process.env.FOLIAGE_WORKSPACE = workspaceRoot
-
-  if (appDirectory) {
-    process.env.FOLIAGE_APP_ROOT = appDirectory
-  }
-
-  let handle = null
-  let handleNextUpgrade = null
-
-  if (serveNext) {
-    const next = (await import('next')).default
-    const app = next({ dev, hostname, port, dir: appDirectory })
-    await app.prepare()
-    handle = app.getRequestHandler()
-    handleNextUpgrade = app.getUpgradeHandler()
-  }
 
   let workspace = createWorkspaceApi(workspaceRoot)
   let settings = createSettingsHandlers(workspaceRoot)
   let bib = createBibHandlers(workspace.resolveWorkspacePath)
+
+  let relayClient = createRelayClient({ relayUrl: '', sessionId: '', localPort: port })
 
   const setWorkspaceRoot = (nextWorkspacePath) => {
     workspaceRoot = path.resolve(nextWorkspacePath)
@@ -88,12 +67,12 @@ export const startServer = async (options = {}) => {
     bib = createBibHandlers(workspace.resolveWorkspacePath)
   }
 
-  const corsHeaders = (request) => (headless ? applyCors(request) : {})
+  const corsHeaders = (request) => applyCors(request)
 
   const server = createServer((request, response) => {
     const url = new URL(request.url ?? '', `http://${request.headers.host}`)
 
-    if (headless && handleCorsPreflight(request, response)) {
+    if (handleCorsPreflight(request, response)) {
       return
     }
 
@@ -105,10 +84,61 @@ export const startServer = async (options = {}) => {
           ok: true,
           workspace: workspaceName,
           workspacePath: workspaceRoot,
-          mode: headless ? 'headless' : 'full',
+          mode: 'headless',
         },
         corsHeaders(request),
       )
+      return
+    }
+
+    if (url.pathname === '/api/live-share/status' && request.method === 'GET') {
+      sendJson(response, 200, relayClient.getStatus(), corsHeaders(request))
+      return
+    }
+
+    if (url.pathname === '/api/live-share/start' && request.method === 'POST') {
+      void readJsonBody(request)
+        .then(async (body) => {
+          const relayUrl = body.relayUrl
+          const sessionId = body.sessionId
+
+          if (!relayUrl || typeof relayUrl !== 'string') {
+            throw new Error('Relay URL is required.')
+          }
+
+          if (!sessionId || typeof sessionId !== 'string') {
+            throw new Error('Session ID is required.')
+          }
+
+          relayClient.stop()
+          relayClient = createRelayClient({
+            relayUrl,
+            sessionId,
+            localPort: port,
+          })
+
+          await relayClient.start()
+
+          return relayClient.getStatus()
+        })
+        .then((status) => {
+          sendJson(response, 200, { status }, corsHeaders(request))
+        })
+        .catch((error) => {
+          sendJson(
+            response,
+            400,
+            { error: error instanceof Error ? error.message : 'Unable to start live share.' },
+            corsHeaders(request),
+          )
+        })
+
+      return
+    }
+
+    if (url.pathname === '/api/live-share/stop' && request.method === 'POST') {
+      relayClient.stop()
+      sendJson(response, 200, { status: relayClient.getStatus() }, corsHeaders(request))
       return
     }
 
@@ -401,7 +431,7 @@ export const startServer = async (options = {}) => {
       return
     }
 
-    if (headless && url.pathname === '/') {
+    if (url.pathname === '/') {
       sendJson(
         response,
         200,
@@ -412,11 +442,6 @@ export const startServer = async (options = {}) => {
         },
         corsHeaders(request),
       )
-      return
-    }
-
-    if (handle) {
-      handle(request, response)
       return
     }
 
@@ -471,14 +496,11 @@ export const startServer = async (options = {}) => {
       return
     }
 
-    if (handleNextUpgrade) {
-      handleNextUpgrade(request, socket, head)
-    } else {
-      socket.destroy()
-    }
+    socket.destroy()
   })
 
   const shutdown = () => {
+    relayClient.stop()
     server.close(() => process.exit(0))
   }
 
@@ -488,7 +510,7 @@ export const startServer = async (options = {}) => {
   await new Promise((resolve) => {
     server.listen(port, hostname, () => {
       console.log(`Foliage workspace: ${workspaceRoot}`)
-      console.log(`Mode: ${headless ? 'headless' : 'full'}`)
+      console.log(`Mode: headless`)
       console.log(`Ready on http://${hostname}:${port}`)
       resolve()
     })
@@ -499,9 +521,10 @@ export const startServer = async (options = {}) => {
     port,
     hostname,
     workspaceRoot,
-    headless,
+    headless: true,
     shutdown: () =>
       new Promise((resolve) => {
+        relayClient.stop()
         server.close(() => resolve())
       }),
   }

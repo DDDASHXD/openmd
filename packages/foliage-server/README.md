@@ -1,23 +1,10 @@
 # foliage-server
 
-Authoritative Foliage workspace runtime: filesystem API, Yjs collaboration, and optional Next.js UI hosting.
+Authoritative Foliage workspace runtime: filesystem API, Yjs collaboration, Leafmark builds, and live-share relay tunneling.
 
-## Modes
+## Headless mode (default)
 
-### Full mode (desktop / dev)
-
-Serves the Next.js UI plus all workspace APIs and WebSockets.
-
-```bash
-foliage-server \
-  --workspace /path/to/project \
-  --port 3000 \
-  --app-dir /path/to/foliage/apps/web
-```
-
-### Headless mode (persistent remote server)
-
-API and WebSocket only. Use this for always-on team servers or VPS deployments.
+API and WebSocket only. Use for embedded desktop sidecars, LAN servers, or VPS deployments.
 
 ```bash
 foliage-server \
@@ -27,7 +14,7 @@ foliage-server \
   --hostname 0.0.0.0
 ```
 
-Clients connect with **Connect to server** in the launcher and use the server URL (for example `https://notes.example.com:8787`).
+Desktop clients connect with **Connect to server** in the launcher.
 
 ## Health check
 
@@ -35,10 +22,20 @@ Clients connect with **Connect to server** in the launcher and use the server UR
 curl http://127.0.0.1:8787/api/health
 ```
 
+## Live share
+
+```bash
+curl -X POST http://127.0.0.1:8787/api/live-share/start \
+  -H 'Content-Type: application/json' \
+  -d '{"relayUrl":"https://foliage.skxv.dev","sessionId":"<id>"}'
+
+curl -X POST http://127.0.0.1:8787/api/live-share/stop
+```
+
 ## Create project scaffold
 
 ```bash
-curl -X POST http://127.0.0.1:3000/api/workspace/project \
+curl -X POST http://127.0.0.1:8787/api/workspace/project \
   -H 'Content-Type: application/json' \
   -d '{"path":"/path/to/new-project"}'
 ```
@@ -58,7 +55,6 @@ other/
 | Variable | Purpose |
 |----------|---------|
 | `FOLIAGE_WORKSPACE` | Workspace root (set automatically from `--workspace`) |
-| `FOLIAGE_APP_ROOT` | Next.js app directory for Leafmark resolution |
 | `PORT` | Default listen port |
 | `HOSTNAME` | Bind address (default `0.0.0.0`) |
 

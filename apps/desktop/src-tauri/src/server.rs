@@ -1,27 +1,29 @@
 use std::net::TcpListener;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Manager};
+use tauri_plugin_shell::process::CommandChild;
+use tauri_plugin_shell::ShellExt;
 
-pub const DEV_SERVER_PORT: u16 = 3000;
+pub const DEV_SERVER_PORT: u16 = 8787;
 
 pub struct ServerProcess {
-    child: Option<Child>,
+    child: Option<ManagedChild>,
     pub port: u16,
     pub workspace: String,
 }
 
+enum ManagedChild {
+    Process(Child),
+    Sidecar(CommandChild),
+}
+
 pub struct RuntimePaths {
-    pub node: PathBuf,
     pub server_script: PathBuf,
-    pub app_dir: Option<PathBuf>,
-    pub relay_script: PathBuf,
-    pub project_template: PathBuf,
     pub working_dir: PathBuf,
-    pub headless: bool,
 }
 
 static SERVER: Mutex<Option<ServerProcess>> = Mutex::new(None);
@@ -29,16 +31,6 @@ static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
 
 pub fn init_app_handle(handle: AppHandle) {
     let _ = APP_HANDLE.set(handle);
-}
-
-pub fn repo_root() -> PathBuf {
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    manifest_dir
-        .parent()
-        .and_then(|p| p.parent())
-        .and_then(|p| p.parent())
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| manifest_dir)
 }
 
 pub fn shell_workspace() -> PathBuf {
@@ -56,16 +48,17 @@ pub fn shell_workspace() -> PathBuf {
 
 pub fn resolve_paths() -> Result<RuntimePaths, String> {
     if cfg!(debug_assertions) {
-        let repo = repo_root();
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let repo = manifest_dir
+            .parent()
+            .and_then(|p| p.parent())
+            .and_then(|p| p.parent())
+            .map(|p| p.to_path_buf())
+            .unwrap_or(manifest_dir);
 
         return Ok(RuntimePaths {
-            node: PathBuf::from("node"),
             server_script: repo.join("packages/foliage-server/bin/foliage-server.mjs"),
-            app_dir: Some(repo.join("apps/web")),
-            relay_script: repo.join("packages/foliage-relay/bin/foliage-relay-client.mjs"),
-            project_template: repo.join("packages/foliage-server/src/lib/project-template.mjs"),
             working_dir: repo,
-            headless: false,
         });
     }
 
@@ -78,22 +71,11 @@ pub fn resolve_paths() -> Result<RuntimePaths, String> {
         .resource_dir()
         .map_err(|error| error.to_string())?;
 
-    let bundle_root = resource_dir.join("resources");
-    let server_dir = bundle_root.join("foliage-server");
-    let node_binary = if cfg!(windows) {
-        bundle_root.join("node/bin/node.exe")
-    } else {
-        bundle_root.join("node/bin/node")
-    };
+    let server_dir = resource_dir.join("resources/foliage-server");
 
     Ok(RuntimePaths {
-        node: node_binary,
         server_script: server_dir.join("bin/foliage-server.mjs"),
-        app_dir: None,
-        relay_script: bundle_root.join("foliage-relay/foliage-relay-client.mjs"),
-        project_template: server_dir.join("src/lib/project-template.mjs"),
         working_dir: server_dir,
-        headless: true,
     })
 }
 
@@ -122,15 +104,14 @@ pub fn is_healthy(port: u16) -> bool {
         .unwrap_or(false)
 }
 
-fn kill_listener_on_port(port: u16) {
-    #[cfg(unix)]
-    {
-        let _ = Command::new("sh")
-            .arg("-c")
-            .arg(format!("lsof -ti tcp:{port} | xargs kill -9 2>/dev/null || true"))
-            .status();
-    }
+#[cfg(windows)]
+fn apply_windows_no_window(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+    command.creation_flags(0x08000000);
 }
+
+#[cfg(not(windows))]
+fn apply_windows_no_window(_command: &mut Command) {}
 
 fn wait_for_health(port: u16) -> Result<(), String> {
     let client = reqwest::blocking::Client::builder()
@@ -154,29 +135,30 @@ fn wait_for_health(port: u16) -> Result<(), String> {
     Err("Timed out waiting for foliage-server.".to_string())
 }
 
+fn kill_managed_child(child: ManagedChild) {
+    match child {
+        ManagedChild::Process(mut process) => {
+            let _ = process.kill();
+            let _ = process.wait();
+        }
+        ManagedChild::Sidecar(sidecar) => {
+            let _ = sidecar.kill();
+        }
+    }
+}
+
 pub fn stop_server() -> Result<(), String> {
     let mut guard = SERVER
         .lock()
         .map_err(|_| "Server lock poisoned.".to_string())?;
 
     if let Some(mut process) = guard.take() {
-        if let Some(mut child) = process.child.take() {
-            let _ = child.kill();
-            let _ = child.wait();
-        } else if should_kill_adopted_server(process.port) {
-            kill_listener_on_port(process.port);
+        if let Some(child) = process.child.take() {
+            kill_managed_child(child);
         }
     }
 
     Ok(())
-}
-
-fn should_kill_adopted_server(port: u16) -> bool {
-    if cfg!(debug_assertions) && port == DEV_SERVER_PORT {
-        return false;
-    }
-
-    true
 }
 
 pub fn adopt_running_server(port: u16, workspace_path: &str) -> Result<(), String> {
@@ -225,16 +207,21 @@ pub fn switch_workspace_on_port(port: u16, workspace_path: &str) -> Result<u16, 
         .lock()
         .map_err(|_| "Server lock poisoned.".to_string())?;
 
-    *guard = Some(ServerProcess {
-        child: None,
-        port,
-        workspace: workspace_path.to_string(),
-    });
+    if let Some(process) = guard.as_mut() {
+        process.port = port;
+        process.workspace = workspace_path.to_string();
+    } else {
+        *guard = Some(ServerProcess {
+            child: None,
+            port,
+            workspace: workspace_path.to_string(),
+        });
+    }
 
     Ok(port)
 }
 
-fn spawn_server(paths: &RuntimePaths, workspace_path: &str, port: u16) -> Result<Child, String> {
+fn spawn_server(paths: &RuntimePaths, workspace_path: &str, port: u16) -> Result<ManagedChild, String> {
     if !paths.server_script.exists() {
         return Err(format!(
             "Server script not found: {}",
@@ -242,46 +229,94 @@ fn spawn_server(paths: &RuntimePaths, workspace_path: &str, port: u16) -> Result
         ));
     }
 
-    if !cfg!(debug_assertions) && !paths.node.exists() {
-        return Err(format!(
-            "Bundled Node.js binary not found: {}",
-            paths.node.display()
-        ));
+    let server_script = paths.server_script.display().to_string();
+    let workspace = workspace_path.to_string();
+    let port_arg = port.to_string();
+    let working_dir = paths.working_dir.display().to_string();
+
+    if cfg!(debug_assertions) {
+        let mut command = Command::new("node");
+        command
+            .arg(&server_script)
+            .arg("--headless")
+            .arg("--workspace")
+            .arg(&workspace)
+            .arg("--port")
+            .arg(&port_arg)
+            .arg("--hostname")
+            .arg("127.0.0.1")
+            .current_dir(&paths.working_dir)
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped());
+
+        apply_windows_no_window(&mut command);
+
+        let child = command
+            .spawn()
+            .map_err(|error| format!("Failed to start foliage-server: {error}"))?;
+
+        return Ok(ManagedChild::Process(child));
     }
 
-    let mut command = Command::new(&paths.node);
-    command
-        .arg(&paths.server_script)
-        .arg("--workspace")
-        .arg(workspace_path)
-        .arg("--port")
-        .arg(port.to_string())
-        .arg("--hostname")
-        .arg("127.0.0.1")
-        .current_dir(&paths.working_dir)
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped());
+    let handle = APP_HANDLE
+        .get()
+        .ok_or_else(|| "App handle is not initialized.".to_string())?;
 
-    if paths.headless {
-        command.arg("--headless");
-    } else if let Some(app_dir) = &paths.app_dir {
-        command.arg("--app-dir").arg(app_dir);
-    }
-
-    command
+    let sidecar = handle
+        .shell()
+        .sidecar("node")
+        .map_err(|error| format!("Failed to resolve node sidecar: {error}"))?
+        .args([
+            server_script.as_str(),
+            "--headless",
+            "--workspace",
+            workspace.as_str(),
+            "--port",
+            port_arg.as_str(),
+            "--hostname",
+            "127.0.0.1",
+        ])
+        .current_dir(working_dir)
         .spawn()
-        .map_err(|error| format!("Failed to start foliage-server: {error}"))
+        .map_err(|error| format!("Failed to start foliage-server sidecar: {error}"))?;
+
+    Ok(ManagedChild::Sidecar(sidecar.1))
+}
+
+pub fn stop_live_share() -> Result<(), String> {
+    let port = current_port().ok_or_else(|| "Local server is not running.".to_string())?;
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|error| error.to_string())?;
+
+    let url = format!("http://127.0.0.1:{port}/api/live-share/stop");
+    let _ = client.post(&url).send();
+
+    Ok(())
 }
 
 pub fn start_server(workspace_path: &str) -> Result<u16, String> {
-    if cfg!(debug_assertions) && is_healthy(DEV_SERVER_PORT) {
-        return switch_workspace_on_port(DEV_SERVER_PORT, workspace_path);
+    let existing_port = SERVER
+        .lock()
+        .ok()
+        .and_then(|guard| {
+            guard.as_ref().and_then(|process| {
+                if is_healthy(process.port) {
+                    Some(process.port)
+                } else {
+                    None
+                }
+            })
+        });
+
+    if let Some(port) = existing_port {
+        return switch_workspace_on_port(port, workspace_path);
     }
 
-    stop_server()?;
-
-    if !cfg!(debug_assertions) {
-        kill_listener_on_port(DEV_SERVER_PORT);
+    if cfg!(debug_assertions) && is_healthy(DEV_SERVER_PORT) {
+        return switch_workspace_on_port(DEV_SERVER_PORT, workspace_path);
     }
 
     let paths = resolve_paths()?;
@@ -289,18 +324,7 @@ pub fn start_server(workspace_path: &str) -> Result<u16, String> {
     let child = spawn_server(&paths, workspace_path, port)?;
 
     if let Err(error) = wait_for_health(port) {
-        let mut child = child;
-        let _ = child.kill();
-        let _ = child.wait();
-
-        if let Some(mut stderr) = child.stderr.take() {
-            use std::io::Read;
-            let mut output = String::new();
-            let _ = stderr.read_to_string(&mut output);
-            if !output.is_empty() {
-                eprintln!("foliage-server stderr:\n{output}");
-            }
-        }
+        kill_managed_child(child);
 
         return Err(error);
     }
@@ -323,9 +347,4 @@ pub fn current_port() -> Option<u16> {
         .lock()
         .ok()
         .and_then(|guard| guard.as_ref().map(|process| process.port))
-}
-
-pub fn project_template_import_url(template_path: &Path) -> String {
-    let normalized = template_path.display().to_string().replace('\\', "/");
-    format!("file://{normalized}")
 }

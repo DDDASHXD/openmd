@@ -7,20 +7,18 @@ const printHelp = () => {
   console.log(`Usage:
   foliage-server [options]
 
-  Foliage workspace server: filesystem API, collaboration WebSocket, and Leafmark builds.
+  Foliage workspace server: filesystem API, collaboration WebSocket, Leafmark builds, and live share.
 
 Options:
   --workspace <path>   Workspace root (default: current directory)
   --port <number>      Listen port (default: 3000, or PORT env)
   --hostname <host>    Bind address (default: 0.0.0.0, or HOSTNAME env)
-  --headless           API and WebSocket only (default when --app-dir is omitted)
-  --app-dir <path>     Next.js app directory for full UI mode
+  --headless           Headless API mode (default)
   --help, -h           Show this help
 
 Examples:
   foliage-server --workspace ./notes --headless --port 8787
   foliage-server --workspace ./notes --port 8787
-  foliage-server --workspace ./notes --app-dir ./apps/web --port 3000
 `)
 }
 

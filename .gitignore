@@ -34,7 +34,10 @@ Thumbs.db
 *.log
 
 # Tauri / Next desktop build stash
-apps/web/.tauri-api-stash/
+apps/client/dist/
+apps/client/public/monaco/
+apps/desktop/src-tauri/binaries/node-*
+!apps/desktop/src-tauri/binaries/.gitkeep
 
 # Local test workspace
 test-workspace/

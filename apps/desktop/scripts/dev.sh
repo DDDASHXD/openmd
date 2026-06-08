@@ -20,4 +20,14 @@ if [ "$major" -lt 1 ] || { [ "$major" -eq 1 ] && [ "$minor" -lt 88 ]; }; then
   exit 1
 fi
 
+node scripts/setup-dev-sidecar.mjs
+
+export RUST_LOG="${RUST_LOG:-debug}"
+export RUST_BACKTRACE="${RUST_BACKTRACE:-1}"
+export FOLIAGE_DEV=1
+
+echo "Dev mode: RUST_LOG=${RUST_LOG} (WebView devtools open on launch)"
+echo "  Server: http://127.0.0.1:8787"
+echo "  Client: http://127.0.0.1:5173/launcher"
+
 exec pnpm exec tauri dev "$@"

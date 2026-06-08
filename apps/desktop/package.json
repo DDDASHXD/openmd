@@ -1,13 +1,14 @@
 {
   "name": "desktop",
-  "version": "0.0.1",
+  "version": "0.0.4",
   "private": true,
   "scripts": {
     "setup:rust": "sh scripts/setup-rust.sh",
     "dev:stop": "sh scripts/stop-dev-server.sh",
-    "dev:server": "node scripts/dev-server.mjs",
     "dev": "sh scripts/dev.sh",
     "build": "sh -c 'export PATH=\"${HOME}/.cargo/bin:${PATH}\"; pnpm exec tauri build'",
+    "verify:ws": "node scripts/verify-collaboration-ws.mjs",
+    "verify:prod-ws": "node scripts/verify-prod-bundle-ws.mjs",
     "typecheck": "echo 'no types'"
   },
   "dependencies": {
