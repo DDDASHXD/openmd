@@ -1,6 +1,6 @@
 {
   "name": "foliage-server",
-  "version": "0.0.4",
+  "version": "0.1.0",
   "description": "Foliage workspace server: filesystem API, collaboration, and Leafmark builds",
   "type": "module",
   "license": "MIT",

@@ -1,6 +1,6 @@
 {
   "name": "foliage",
-  "version": "0.0.4",
+  "version": "0.1.0",
   "private": false,
   "bin": {
     "foliage-server": "./packages/foliage-server/bin/foliage-server.mjs",
